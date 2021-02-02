@@ -8,86 +8,88 @@
 # setup and preprocessing
 # -----------------------------------------------------------------------------------
 
-proprocessing <- function(data, save.to.rds=TRUE) {
-  # preprocess the given long-form dataset
+proprocessing <- function(aspirin, save.to.rds=TRUE) {
+  # preprocess the given long-form aspirin dataset
   # so that it can be balanced in the number of timepoints
   # across different units
   
   # ARGUMENTS:
-  #   data: [dataframe] long-form  dataset
+  #   aspirin: [dataframe] long-form aspirin dataset
   
   # RETURN(S):
-  #   data_elg: [dataframe] new data dataset that has been
+  #   aspirin_elg: [dataframe] new aspirin dataset that has been
   #                balanced in the number of timepoints across 
   #                different units
   
   
-  #Create a variable indexing last visit (I cannot tell what first_id means below, but this code should do the same thing)
-  #data <- create.last.variable(data)
-  data$last <- as.numeric(!duplicated(data$id, fromLast=T)) 
+  aspirin <- create.last.variable(aspirin)
   
-  #What is the maximum observed week in the data?
-  max.time <- max(data[data$last==1, "week"]) # T
+  # create separete columns for pregnancy outcome
+  aspirin$live_birth <- ifelse(aspirin$status_new == "live birth" & aspirin$last == 1,1,0)
+  aspirin$fetal_loss <- ifelse(aspirin$status_new == "pregnancy loss" & aspirin$last == 1,1,0)
+  aspirin$efuwp <- ifelse(aspirin$status_new == "efuwp" & aspirin$last == 1,1,0)
+  aspirin$withdraw <- ifelse(aspirin$status_new == "withdrawal" & aspirin$last == 1,1,0)
   
-  #Elongate the data set so everyone has weeks through max time
-  data_elg <- elongate.final.val(data, max.time, save.to.rds=save.to.rds)
+  max.time <- max(aspirin[aspirin$last==1,"j"]) # T
   
-  return(data_elg)
+  aspirin_elg <- elongate.final.val(aspirin, max.time, save.to.rds=save.to.rds)
+  
+  return(aspirin_elg)
 }
 
 
-create.last.variable <- function(data) {
+create.last.variable <- function(aspirin) {
   # Create new 'last' indicator variable to denote that either 
-  # last_id==1 or the study ends (t=T)
+  # last_id==1 (outcome is realized) or the study ends (t=T)
   # We do this to include subjects whose outcome is not observed but status still exists
   
   # ARGUMENTS:
-  #   data: dataset in the long form
+  #   aspirin: aspirin dataset in the long form
   
   # RETURN(S):
-  #   dataset with the added 'last' indicator
+  #   aspirin dataset with the added 'last' indicator
   
-  data_ <- data
-  uniq_ids <- unique(data$id)
-  N <- dim(data)[1]
+  aspirin_ <- aspirin
+  uniq_ids <- unique(aspirin$id)
+  N <- dim(aspirin)[1]
   
-  data_$last <- 0
+  aspirin_$last <- 0
   for (i in 1:(N-1)) {
-    if (data_[(i+1),"first_id"] == 1) {
-      data_[i, "last"] <- 1
+    if (aspirin_[(i+1),"first_id"] == 1) {
+      aspirin_[i, "last"] <- 1
     }
     if (i == N-1) {
-      data_[i+1, "last"] <- 1
+      aspirin_[i+1, "last"] <- 1
     }
   }
   
-  if (sum(data_$last) != length(uniq_ids)) {
-    stop("sum(data$last) != length(uniq_ids)")
-  }
+  if (sum(aspirin_$last) != length(uniq_ids)) {
+    stop("sum(aspirin$last) != length(uniq_ids)")
+  } # [1] 1224
   
-  return (data_)
+  return (aspirin_)
 }
 
 
-elongate.final.val <- function(data, max.time, save.to.rds=TRUE) {
+elongate.final.val <- function(aspirin, max.time, save.to.rds=TRUE) {
   
   # elongate data for each subject up to the maximun timepoint (T) 
   # by padding its (dummy) final value after the time point at which no more 
   # data is collected on the subject (van der Laan & Robins, 2003 p.314)
   
   # ARGUMENTS:
-  #   data: [dataframe] dataset in the long form
+  #   aspirin: [dataframe] aspirin dataset in the long form
   #            Must have the 'last' indicator
   #   max.time: [int] T
   
   # RETURNS:
-  #   data_elg: [dataframe] new dataset that has been
+  #   aspirin_elg: [dataframe] new aspirin dataset that has been
   #                balanced in the number of timepoints across 
   #                different units
   
-  uniq_ids <- unique(data$id)
+  uniq_ids <- unique(aspirin$id)
   n <- length(uniq_ids)
-  data_elg <- data
+  aspirin_elg <- aspirin
   
   print ("Data elongation Started")
   for (i in uniq_ids) {
@@ -95,33 +97,33 @@ elongate.final.val <- function(data, max.time, save.to.rds=TRUE) {
       print (paste("task ", toString(i)," complete", sep=""))
     }
     # final value for subject i
-    last_dat <- data[data$id == i & data$last == 1, ]
-    if (last_dat$week == max.time) { 
+    last_dat <- aspirin[aspirin$id == i & aspirin$last == 1, ]
+    if (last_dat$j == max.time) { 
       # skip if j = max_T
       next
     } else {
       # add dummy values
       last_dat$last <- 0
-      final.val.dummy.df <- last_dat[rep(1, each=(max.time - last_dat$week)), ]
-      final.val.dummy.df$week <- (last_dat$week+1):max.time
-      data_elg <- rbind(data_elg, final.val.dummy.df)
+      final.val.dummy.df <- last_dat[rep(1, each=(max.time - last_dat$j)), ]
+      final.val.dummy.df$j <- (last_dat$j+1):max.time
+      aspirin_elg <- rbind(aspirin_elg, final.val.dummy.df)
     }
   }
   print ("Finished")
   
   # inconsistency check
-  if (dim(data_elg)[1] != (n * max.time)) {
+  if (dim(aspirin_elg)[1] != (n * max.time)) {
     stop ("data size inconsistent")
   }
   
   # sorting by (time, id)
-  data_elg <- data_elg[order(data_elg$week, data_elg$id),] 
+  aspirin_elg <- aspirin_elg[order(aspirin_elg$j, aspirin_elg$id),] 
   if (save.to.rds) {
-    saveRDS(data_elg, file = "../data/eager_elg.rds")
-    print (paste("saved to: ", "../data/eager_elg.rds"))
+    saveRDS(aspirin_elg, file = "aspirin_new_elg.rds")
+    print (paste("saved to: ", "aspirin_new_elg.rds"))
   }
   
-  return(data_elg)
+  return(aspirin_elg)
 }
 
 
@@ -129,10 +131,11 @@ elongate.final.val <- function(data, max.time, save.to.rds=TRUE) {
 # Implementation of Algorithm 1
 # -----------------------------------------------------------------------------------
 
+####################################################################################
 
 # Compute the proposed estimator based on Algorithm 1
 estimation.sample.splitting <- 
-  function(dat.f, x.cov.bs, x.cov.td, n, ntimes, delta.seq, nsplits){
+  function(dat.f, x.cov.bs, x.cov.td, uniq_ids, n, ntimes, delta.seq, nsplits){
     
     # ARGUMENTS:
     #   dat.f [dataframe] dataframe that contains subject info & outcome of interest
@@ -147,6 +150,7 @@ estimation.sample.splitting <-
     # RETURNS:
     #   ifvals: influence function estimates
     #   kvals: mean estimate on group k units
+    #   caches
     
     # setup storage
     n.delta <- length(delta.seq)
@@ -161,12 +165,15 @@ estimation.sample.splitting <-
     cumW.long.delta = list()
     
     s <- sample(rep(1:nsplits,ceiling(n/nsplits))[1:n])
-    slong <- rep(s, ntimes) # for (time, id) order
+    # slong <- rep(s, ntimes) # for (time, id) order
+    
+    Rt.prev <- c(rep(1,n),dat.f$Rt[1:(length(dat.f$Rt)-n)])
     
     ## Big loop started
     for (split in 1:nsplits){ 
       print(paste("split",split)); flush.console()
-      id.split <- x.cov.bs[s == split, "id"] #grabbing those IDs that were sampled above for a given split
+      id.split <- x.cov.bs[s == split,"id"]
+      # all(id.split, uniq_ids[s == split])
       
       ## Step 1 & 2: estimate pi and omega functions
       print("  fitting pi and omega functions.."); flush.console()
@@ -174,35 +181,48 @@ estimation.sample.splitting <-
       omega.mat <- data.frame(id = matrix(uniq_ids, nrow=n, ncol=1))
       
       for (t in 1:ntimes) {
-        id.t <- obsvbleIdSet(t, dat.f) #finds set of unique ids still observable at time t (see below)
-        x.trt.t <- buildCovMat(t, id.t, dat.f, x.cov.bs, x.cov.td, maxT = ntimes) #creates data set with exposure and history
+        id.t <- obsvbleIdSet(t-1, dat.f)
+        x.trt.t <- buildCovMat(t, id.t, dat.f, x.cov.bs, x.cov.td, maxT = ntimes)
         R.next.t <- dat.f[dat.f$time==t & dat.f$id %in% id.t, c("id", "Rt")]
         x.trt.R.t <- merge(x.trt.t, R.next.t, by="id")
         
-        trt.t.formula <- as.formula(paste(paste("A_",t,sep=""),"~.",sep = "")) #treatment
-        omega.t.formula <- as.formula(paste("Rt","~.",sep = "")) #drop out
+        trt.t.formula <- as.formula(paste(paste("A_",t,sep=""),"~.",sep = ""))
+        omega.t.formula <- as.formula(paste("Rt","~.",sep = ""))
         if (nsplits == 1) {
           warning("nsplits should be greater than 1: naive Z-estimator used", call. = FALSE)
           trt.mod <- ranger(trt.t.formula, dat=x.trt.t[,-1])
           omega.mod <- ranger(omega.t.formula, dat=x.trt.R.t[,-1])
         } else {
           if (unisance.est.md == "RF"){
-              #Grab units that are NOT in the split
             trt.mod <- ranger(trt.t.formula, dat=x.trt.t[!(x.trt.t$id %in% id.split), -1] , write.forest = TRUE)
             omega.mod <- ranger(omega.t.formula, dat=x.trt.R.t[!(x.trt.R.t$id %in% id.split), -1] , write.forest = TRUE)
+          } else if (unisance.est.md == "SuperLearner") {
+            trt.mod <- SuperLearner(Y = x.trt.t[!(x.trt.t$id %in% id.split), c(paste("A_",t,sep=""))],
+                                    X = x.trt.t[!(x.trt.t$id %in% id.split), !names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")], 
+                                    family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                    SL.library = c("SL.ksvm", "SL.ranger", "SL.kernelKnn"))
+            omega.mod <- SuperLearner(Y = x.trt.R.t[!(x.trt.R.t$id %in% id.split), c("Rt")],
+                                     X = x.trt.R.t[!(x.trt.R.t$id %in% id.split), !names(x.trt.R.t) %in% c("Rt", "id")], 
+                                     family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                     SL.library = c("SL.ranger", "SL.kernelKnn"))
+            
           } else {
             stop("other methods to be implemented")
           }
         }
         
         ps.t <- if (unisance.est.md == "RF"){ 
-          predict(trt.mod, data=x.trt.t[,-c(1,dim(x.trt.t)[2])])$predictions #No first or last column?
+          predict(trt.mod, data=x.trt.t[,!names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")])$predictions
+        } else if (unisance.est.md == "SuperLearner") {
+          as.vector(predict(trt.mod, x.trt.t[,!names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")], onlySL = TRUE)$pred)
         } else {
           stop("other methods to be implemented")
         }
         
         omega.t <- if (unisance.est.md == "RF"){ 
-          predict(omega.mod, data=x.trt.R.t[,-c(1,dim(x.trt.R.t)[2])])$predictions
+          predict(omega.mod, data=x.trt.R.t[,!names(x.trt.R.t) %in% c("Rt", "id")])$predictions
+        } else if (unisance.est.md == "SuperLearner") {
+          as.vector(predict(omega.mod, x.trt.R.t[,!names(x.trt.R.t) %in% c("Rt", "id")], onlySL = TRUE)$pred)
         } else {
           stop("other methods to be implemented")
         }
@@ -226,19 +246,18 @@ estimation.sample.splitting <-
         
         # Step 3:
         W.long <- omega.long
-        #This is the building block of the incremental IPW estimator; it then gets multiplied across time:
         W.long$value <- 
           (delta*dat.f$A + 1-dat.f$A)/(delta*trt.long$value + 1-trt.long$value) * 1/omega.long$value
+        # (delta*dat.f$A + 1-dat.f$A)/(delta*trt.long$value + 1-trt.long$value) * Rt.prev/omega.long$value
         
         cumW.mat <- as.data.frame(aggregate(W.long$value, by=list(W.long$id), cumprod)[[2]])
         cumW.mat$id <- uniq_ids; colnames(cumW.mat)[1:ntimes] <- 1:ntimes;
-        cumW.mat[,-c(1,ntimes+1)] <- cumW.mat[,-c(1,ntimes+1)] * omega.mat[,-c(1,ntimes+1)]
         cumW.long <- melt(cumW.mat, id.vars = "id")
         
         # Step 4: fit outcome models
         M.mat <- data.frame(id = matrix(uniq_ids, nrow=n, ncol=1))
         M.mod <- vector("list", ntimes) 
-        id.tp1 <- obsvbleIdSet(ntimes+1, dat.f)
+        id.tp1 <- obsvbleIdSet(ntimes, dat.f)
         id.M.tp1 <- dat.f[dat.f$time==ntimes & dat.f$id %in% id.tp1, c("id", "Y")]
         print("    fitting psuedo regressions.."); flush.console()
         
@@ -250,57 +269,81 @@ estimation.sample.splitting <-
             M.mod[[t]] <- ranger(Mt ~ ., dat=x.M.t[,-1], write.forest = TRUE)
           } else {
             if (unisance.est.md == "RF"){
-              M.mod[[t]] <- ranger(Mt ~ ., dat=x.M.t[!(x.M.t$id %in% id.split), -1], write.forest = TRUE) #outcome model
+              M.mod[[t]] <- ranger(Mt ~ ., dat=x.M.t[!(x.M.t$id %in% id.split), -1], write.forest = TRUE)
+            } else if (unisance.est.md == "SuperLearner") {
+              M.mod[[t]] <- SuperLearner(Y = x.M.t[!(x.M.t$id %in% id.split), c("Mt")],
+                                          X = x.M.t[!(x.M.t$id %in% id.split), !names(x.M.t) %in% c("Mt", "id")], 
+                                          family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                          SL.library = c("SL.ksvm", "SL.ranger", "SL.kernelKnn"))
             } else {
               stop("other methods to be implemented")
             }
           }
           
+          id.t <- obsvbleIdSet(t-1, dat.f)
+          x.trt.t.pred <- buildCovMat(t, id.t, dat.f, x.cov.bs, x.cov.td, maxT = ntimes)
           a.idx = paste(c("A", t), collapse = "_")
-          id.tp1 <- obsvbleIdSet(t, dat.f)
-          x.trt.t.pred <- buildCovMat(t, id.tp1, dat.f, x.cov.bs, x.cov.td, maxT = ntimes)
           newx0 <- newx1 <- x.trt.t.pred[,-1]
           newx1[,a.idx] <- 1 # (H_t, 1)
           m1 <- if (unisance.est.md == "RF") {
-            predict(M.mod[[t]], data=newx1)$predictions #outcome predictions where x=1
+            predict(M.mod[[t]], data=newx1)$predictions
+          } else if (unisance.est.md == "SuperLearner") {
+            as.vector(predict(M.mod[[t]], newx1, onlySL = TRUE)$pred)
           } else {
             stop("other methods to be implemented")
           }
           newx0[,a.idx] <- 0  # (H_t, 0)
           m0 <- if (unisance.est.md == "RF") {
-            predict(M.mod[[t]], data=newx0)$predictions #outcome predictions where x=0
+            predict(M.mod[[t]], data=newx0)$predictions
+          } else if (unisance.est.md == "SuperLearner") {
+            as.vector(predict(M.mod[[t]], newx0, onlySL = TRUE)$pred)
           } else {
             stop("other methods to be implemented")
           }
           
-          pi.t <- trt.mat[trt.mat$id %in% id.tp1,t+1]
-          M.tp1 <- (delta*pi.t*m1 + (1-pi.t)*m0)/(delta*pi.t + 1-pi.t)
-          id.M.tp1 <- cbind(id = id.tp1, M.tp1); colnames(id.M.tp1)[2] <- t; 
-          M.mat = merge(M.mat, id.M.tp1, by="id", all.x = TRUE)
+          pi.t <- trt.mat[trt.mat$id %in% id.t,t+1]
+          # recursive regression formula in E.1
+          M.tp1 <- (delta*m1*pi.t + m0*(1-pi.t))/(delta*pi.t + 1-pi.t) 
+          id.M.tp1 <- cbind(id = id.t, M.tp1); colnames(id.M.tp1)[2] <- t; 
+          
+          # step 4-b
+          omega.t <- omega.mat[omega.mat$id %in% id.t,t+1]
+          A.t <- dat.f[dat.f$id %in% id.t & dat.f$time == t, c("A")]
+          R.tp1 <- dat.f[dat.f$id %in% id.t & dat.f$time==t, c("Rt")]
+          M.t <- (m1 - m0)*delta*(A.t - pi.t)*omega.t/(delta*pi.t + 1-pi.t) +
+            delta*m1*(pi.t*omega.t - A.t*R.tp1) + m0*((1-pi.t)*omega.t - (1-A.t)*R.tp1)
+          id.M.t <- cbind(id = id.t, M.t); colnames(id.M.t)[2] <- t; 
+          
+          M.mat = merge(M.mat, id.M.t, by="id", all.x = TRUE)
+          
+          id.tp1 <- id.t
         }
         
         M.long <- melt(M.mat, id.vars = "id")
         
         # step 5:
-        V.long <- omega.long
-        V.long$value <- (1 - delta)*(dat.f$A - trt.long$value)/(delta*dat.f$A + 1-dat.f$A)
+        V.long <- W.long
+        V.long$value <- 1/(delta*dat.f$A + 1-dat.f$A)
         
-        #j indexes the deltas
+        # cache
         W.long.delta[[j]] <- W.long
-        cumW.long.delta[[j]] <- cumW.long #cumulative incremental PS
+        cumW.long.delta[[j]] <- cumW.long
         V.long.delta[[j]] <- V.long
-        M.long.delta[[j]] <- M.long #outcome model results
+        M.long.delta[[j]] <- M.long
         
         # Step 6:
         phi.val <- ((cumW.long$value*dat.f$Y)[dat.f$time==ntimes] +
                       aggregate(cumW.long$value*V.long$value*M.long$value, by=list(dat.f$id), sum)[[2]])[s==split]
         
-        ifvals[s==split,j] <- phi.val #influence function values
-        kvals[split,j] <- mean(phi.val, na.rm = T) #mean in the k group
+        ifvals[s==split,j] <- phi.val
+        print(mean(phi.val, na.rm = T))
+        kvals[split,j] <- mean(phi.val, na.rm = T)
       } 
     }
     
-    return(list(ifvals=ifvals, kvals=kvals))
+    return(list(ifvals=ifvals, kvals=kvals, s=s,
+                W.long.delta=W.long.delta, cumW.long.delta=cumW.long.delta,
+                V.long.delta=V.long.delta, M.long.delta=M.long.delta))
   }
 
 ####################################################################################
@@ -312,13 +355,13 @@ buildCovMat <-
   function(t, id.t, dat, x.cov.bs, x.cov.td, maxT, td.cov.names = NULL, append = FALSE, no.last.trt = FALSE)
   {
     # DESCRYPTION:
-    #    Returns cbind(\bar{H}_t, A_t) with id column
+    #    Returns cbind(\bar{H}_t, A_t) with "id" column
     #    which is the historical values of covariates and exposures
-    #    of given id set up to time t
+    #    of given id set up to time t, only with the specified id set (id.t)
     #    if no.last.trt = TRUE, then we will just get \bar{H}_t
     
     # ARGUMENTS:
-    #    id.t = good set of "id" available at time t
+    #    id.t =  index set of "id"'s; data for each id should be available at time t
     
     # RETURNS:
     #   HA.t.bar [dataframe] cbind(\bar{H}_t, A_t) with id column
@@ -336,7 +379,9 @@ buildCovMat <-
     
     # time-dependent covariates
     if (dim(x.cov.td)[2] >= 3) {
+      if (is.null(td.cov.names)) {
         td.cov.names <- colnames(x.cov.td)[3:length(colnames(x.cov.td))]
+      }
     } else {
       warning('No time-dependent variable used')
       td.cov.names <- NULL
@@ -393,18 +438,19 @@ buildCovMat <-
 ####################################################################################
 ####################################################################################
 
-# Function to identify 'id's still observable at time t (id_t: Rt == 1)
+# Function to identify 'id's still observable at time t (id_t: R_t == 1)
 obsvbleIdSet <- 
   function(t, dat)
   {
     # DESCRYPTION:
-    #    Returns the vector of id's that have never withdrawn
-    #    until time t (R_{t-1} == 1)
-    if (t==1) {
+    #    Returns the vector of id's that have not withdrawn at t
+    #    and will be staying in the next timepoint 
+    #    (Typically we assume R_1 (or R_0) = 1)
+    if (t==1 || t==0) {
       # we can always assume R_1 = 1
-      id.t <- dat[dat$time == t, "id"]  
+      id.t <- dat[dat$time == 1, "id"]  
     } else{
-      id.t <- dat[dat$time == t-1 & dat$Rt == 1, "id"]  
+      id.t <- dat[dat$time == t & dat$Rt == 1, "id"]  
     }
     
     return(id.t)
@@ -414,13 +460,6 @@ obsvbleIdSet <-
 ####################################################################################
 
 # compute 95% asymptotic variance via bootstrapping
-    #These are Ashley's questions, I think:
-    #is this okay bc the influence function is doubly robust? we used ML methods to estimate PS
-        #In paper, it is proved that the estimator is asymp normal
-        #Once this is shown, we can use bootstrap
-    #I don't really get what is going on here: what is multiplier bootstrapping?
-        #It's just a bootstrap method
-    #Can use the closed form of the EIF but it's very complicated
 variance.bootstrap <- function(ifvals) {
   # compute both pointwise confidence interval (CI) and confidence band (CB)
   # where alpha = 0.05
@@ -466,22 +505,20 @@ plot.delta.curve <-
     outcome.name.t <- paste(strsplit(outcome.name, "_")[[1]], collapse=" ")
     outcome.name.t <- simpleCap(outcome.name.t)
     
-    max.y <- min(1.1,max(eff.ul2)); min.y <- max(0.4,min(eff.ll2)); # min.y <- max(min(eff.ll2),0)
-    #plot(delta.seq, eff.ll2, type="l", col="firebrick", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
-    #plot(delta.seq, eff.ul2, type="l", col="firebrick", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
+    max.y <- min(1.5,max(eff.ul2)); min.y <- max(-1,min(eff.ll2)); # min.y <- max(min(eff.ll2),0)
+    plot(delta.seq, eff.ll2, type="l", col="firebrick", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
+    plot(delta.seq, eff.ul2, type="l", col="firebrick", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
     plot(delta.seq, eff.ll, type="n", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
     plot(delta.seq, eff.ul, type="n", lty=3, lwd=2, xlab = NA, ylab = NA, ylim=c(min.y, max.y)); par(new=T)
-    # polygon(c(delta.seq, rev(delta.seq)), c(eff.ul2, rev(eff.ll2)),
-    #         col = "gainsboro", border = NA); par(new=T)
+    polygon(c(delta.seq, rev(delta.seq)), c(eff.ul2, rev(eff.ll2)),
+            col = "gainsboro", border = NA); par(new=T)
     polygon(c(delta.seq, rev(delta.seq)), c(eff.ul, rev(eff.ll)),
-            col = "gray75", border = NA); par(new=T)
-    plot(delta.seq, est.eff, type="l", lwd=2, col="black", 
+            col = "gray70", border = NA); par(new=T)
+    plot(delta.seq, est.eff, type="l", lwd=1.5, col="dimgrey", 
          xlab=NA, ylab=NA, ylim=c(min.y, max.y));  par(new=F)
     abline(v = 1, col="darkblue", lwd=1.5, lty=3)
-    abline(h = 0.7749226, col="darkblue", lwd=1.5, lty=3)
-    title(main="Incremental propensity score estimation of the effect of \naspirin on hCG pregnancy in the EAGeR trial", 
-          xlab=expression(paste("Propensity score odds ratio (",delta,")",sep="")), 
-          ylab="Probability of hCG pregnancy by 26 weeks")
+    title(main=paste("Estimated Probability of ",outcome.name.t," (T=", ntimes, ") ", sep=""),
+          xlab=expression(paste("odds ratio ",delta,sep="")), ylab=expression(Psi(delta)))
     
   }
 
