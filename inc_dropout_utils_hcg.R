@@ -132,7 +132,7 @@ elongate.final.val <- function(data, max.time, save.to.rds=TRUE) {
 
 # Compute the proposed estimator based on Algorithm 1
 estimation.sample.splitting <- 
-  function(dat.f, x.cov.bs, x.cov.td, n, ntimes, delta.seq, nsplits){
+  function(dat.f, x.cov.bs, x.cov.td, uniq_ids, n, ntimes, delta.seq, nsplits){
     
     # ARGUMENTS:
     #   dat.f [dataframe] dataframe that contains subject info & outcome of interest
@@ -190,19 +190,33 @@ estimation.sample.splitting <-
               #Grab units that are NOT in the split
             trt.mod <- ranger(trt.t.formula, dat=x.trt.t[!(x.trt.t$id %in% id.split), -1] , write.forest = TRUE)
             omega.mod <- ranger(omega.t.formula, dat=x.trt.R.t[!(x.trt.R.t$id %in% id.split), -1] , write.forest = TRUE)
-          } else {
+          } else if (unisance.est.md == "SuperLearner") {
+            trt.mod <- SuperLearner(Y = x.trt.t[!(x.trt.t$id %in% id.split), c(paste("A_",t,sep=""))],
+                                    X = x.trt.t[!(x.trt.t$id %in% id.split), !names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")], 
+                                    family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                    SL.library = c("SL.ksvm", "SL.ranger", "SL.kernelKnn"))
+            omega.mod <- SuperLearner(Y = x.trt.R.t[!(x.trt.R.t$id %in% id.split), c("Rt")],
+                                      X = x.trt.R.t[!(x.trt.R.t$id %in% id.split), !names(x.trt.R.t) %in% c("Rt", "id")], 
+                                      family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                      SL.library = c("SL.ranger", "SL.kernelKnn"))
+            
+          }  else {
             stop("other methods to be implemented")
           }
         }
         
         ps.t <- if (unisance.est.md == "RF"){ 
-          predict(trt.mod, data=x.trt.t[,-c(1,dim(x.trt.t)[2])])$predictions #No first or last column?
+          predict(trt.mod, data=x.trt.t[ , !names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")])$predictions
+        } else if (unisance.est.md == "SuperLearner") {
+          as.vector(predict(trt.mod, x.trt.t[ , !names(x.trt.t) %in% c(paste("A_",t,sep=""), "id")], onlySL = TRUE)$pred)
         } else {
           stop("other methods to be implemented")
         }
         
         omega.t <- if (unisance.est.md == "RF"){ 
-          predict(omega.mod, data=x.trt.R.t[,-c(1,dim(x.trt.R.t)[2])])$predictions
+          predict(omega.mod, data=x.trt.R.t[ , !names(x.trt.R.t) %in% c("Rt", "id")])$predictions
+        } else if (unisance.est.md == "SuperLearner") {
+          as.vector(predict(omega.mod, x.trt.R.t[,!names(x.trt.R.t) %in% c("Rt", "id")], onlySL = TRUE)$pred)
         } else {
           stop("other methods to be implemented")
         }
@@ -251,6 +265,11 @@ estimation.sample.splitting <-
           } else {
             if (unisance.est.md == "RF"){
               M.mod[[t]] <- ranger(Mt ~ ., dat=x.M.t[!(x.M.t$id %in% id.split), -1], write.forest = TRUE) #outcome model
+            } else if (unisance.est.md == "SuperLearner") {
+              M.mod[[t]] <- SuperLearner(Y = x.M.t[!(x.M.t$id %in% id.split), c("Mt")],
+                                         X = x.M.t[!(x.M.t$id %in% id.split), !names(x.M.t) %in% c("Mt", "id")], 
+                                         family = gaussian(), verbose = FALSE, cvControl = list(V=2), 
+                                         SL.library = c("SL.ksvm", "SL.ranger", "SL.kernelKnn"))
             } else {
               stop("other methods to be implemented")
             }
@@ -262,13 +281,18 @@ estimation.sample.splitting <-
           newx0 <- newx1 <- x.trt.t.pred[,-1]
           newx1[,a.idx] <- 1 # (H_t, 1)
           m1 <- if (unisance.est.md == "RF") {
-            predict(M.mod[[t]], data=newx1)$predictions #outcome predictions where x=1
+            predict(M.mod[[t]], data=newx1)$predictions
+          } else if (unisance.est.md == "SuperLearner") {
+            as.vector(predict(M.mod[[t]], newx1, onlySL = TRUE)$pred)
           } else {
             stop("other methods to be implemented")
           }
+          
           newx0[,a.idx] <- 0  # (H_t, 0)
           m0 <- if (unisance.est.md == "RF") {
-            predict(M.mod[[t]], data=newx0)$predictions #outcome predictions where x=0
+            predict(M.mod[[t]], data=newx0)$predictions
+          } else if (unisance.est.md == "SuperLearner") {
+            as.vector(predict(M.mod[[t]], newx0, onlySL = TRUE)$pred)
           } else {
             stop("other methods to be implemented")
           }
